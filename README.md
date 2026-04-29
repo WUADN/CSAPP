@@ -15,3 +15,10 @@ Labs for self-study, downloaded from: [http://csapp.cs.cmu.edu/3e/labs.html](htt
 还有"cookie字符串"是指cookie字面量的ascii形式,我开始以为是填充'\0'就可以了:(
 
 
+### part2: level4
+注意地址为8字节,将cookie放在第一个gadget上面.
+
+
+### part2: level5
+没有完成,大致思路应该是使用某个gadget移动rsp到cookie的地址(cookie放到合适位置),然后push $rsp到参数中,因为栈是动态变化的.感觉要花很多时间:)
+
