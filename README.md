@@ -22,3 +22,8 @@ Labs for self-study, downloaded from: [http://csapp.cs.cmu.edu/3e/labs.html](htt
 ### part2: level5
 没有完成,大致思路应该是使用某个gadget移动rsp到cookie的地址(cookie放到合适位置),然后push $rsp到参数中,因为栈是动态变化的.感觉要花很多时间:)
 
+
+## cache lab
+### partA
+结构体设计以及cache访问算法是主要部分，获取参数-> 扫描文件 -> 访问cache。可以将部分参数放到main
+函数外面，避免函数设计参数过多(hit, miss, evicton..)
