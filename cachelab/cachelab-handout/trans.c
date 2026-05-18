@@ -22,6 +22,81 @@ int is_transpose(int M, int N, int A[N][M], int B[M][N]);
 char transpose_submit_desc[] = "Transpose submission";
 void transpose_submit(int M, int N, int A[N][M], int B[M][N])
 {
+    int i, j, k, l;
+    int a0, a1, a2, a3, a4, a5, a6, a7;
+
+    if (M == 32 && N == 32) {
+        /* 8x8 blocks fit the 32-byte cache line pattern well for 32x32.
+         * Keep one row of A in registers before writing the column in B. */
+        for (i = 0; i < 32; i += 8) {
+            for (j = 0; j < 32; j += 8) {
+                for (k = i; k < i + 8; k++) {
+                    a0 = A[k][j  ]; a1 = A[k][j+1];
+                    a2 = A[k][j+2]; a3 = A[k][j+3];
+                    a4 = A[k][j+4]; a5 = A[k][j+5];
+                    a6 = A[k][j+6]; a7 = A[k][j+7];
+                    B[j  ][k] = a0; B[j+1][k] = a1;
+                    B[j+2][k] = a2; B[j+3][k] = a3;
+                    B[j+4][k] = a4; B[j+5][k] = a5;
+                    B[j+6][k] = a6; B[j+7][k] = a7;
+                }
+            }
+        }
+        return;
+    } else if (M == 64 && N == 64) {
+        /* Plain 8x8 blocking conflicts badly on 64x64, so each block is
+         * handled as four 4x4 quadrants using B as temporary storage. */
+        for (i = 0; i < 64; i += 8) {
+            for (j = 0; j < 64; j += 8) {
+                /* Move the upper half of A. The upper-right quadrant is
+                 * parked in B's upper-right slots for the next step. */
+                for (k = 0; k < 4; k++) {
+                    a0 = A[i+k][j  ]; a1 = A[i+k][j+1];
+                    a2 = A[i+k][j+2]; a3 = A[i+k][j+3];
+                    a4 = A[i+k][j+4]; a5 = A[i+k][j+5];
+                    a6 = A[i+k][j+6]; a7 = A[i+k][j+7];
+
+                    B[j  ][i+k] = a0; B[j+1][i+k] = a1;
+                    B[j+2][i+k] = a2; B[j+3][i+k] = a3;
+                    B[j  ][i+k+4] = a4; B[j+1][i+k+4] = a5;
+                    B[j+2][i+k+4] = a6; B[j+3][i+k+4] = a7;
+                }
+                /* Swap the parked upper-right data into its final lower-left
+                 * position while filling B's upper-right from A's lower-left. */
+                for (k = 0; k < 4; k++) {
+                    a0 = A[i+4][j+k]; a1 = A[i+5][j+k];
+                    a2 = A[i+6][j+k]; a3 = A[i+7][j+k];
+                    a4 = B[j+k][i+4]; a5 = B[j+k][i+5];
+                    a6 = B[j+k][i+6]; a7 = B[j+k][i+7];
+
+                    B[j+k][i+4] = a0; B[j+k][i+5] = a1;
+                    B[j+k][i+6] = a2; B[j+k][i+7] = a3;
+                    B[j+k+4][i  ] = a4; B[j+k+4][i+1] = a5;
+                    B[j+k+4][i+2] = a6; B[j+k+4][i+3] = a7;
+                }
+                /* Finish the lower-right quadrant directly. */
+                for (k = 4; k < 8; k++) {
+                    a0 = A[i+k][j+4]; a1 = A[i+k][j+5];
+                    a2 = A[i+k][j+6]; a3 = A[i+k][j+7];
+                    B[j+4][i+k] = a0; B[j+5][i+k] = a1;
+                    B[j+6][i+k] = a2; B[j+7][i+k] = a3;
+                }
+            }
+        }
+        return;
+    } else {
+        /* 61x67 is irregular; 16x16 blocking keeps locality good and handles
+         * the ragged edges with simple bounds checks. */
+        for (i = 0; i < N; i += 16) {
+            for (j = 0; j < M; j += 16) {
+                for (k = i; k < i + 16 && k < N; k++) {
+                    for (l = j; l < j + 16 && l < M; l++) {
+                        B[l][k] = A[k][l];
+                    }
+                }
+            }
+        }
+    }
 }
 
 /* 
@@ -81,4 +156,3 @@ int is_transpose(int M, int N, int A[N][M], int B[M][N])
     }
     return 1;
 }
-

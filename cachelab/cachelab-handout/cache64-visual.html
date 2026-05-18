@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>64x64 Cache Transpose Visualizer</title>
+  <style>
+    :root {
+      --bg: #f7f8f4;
+      --ink: #1f2933;
+      --muted: #667085;
+      --line: #d7dccf;
+      --panel: #ffffff;
+      --a: #2a9d8f;
+      --a-soft: #d9f0ec;
+      --b: #e9a23b;
+      --b-soft: #fff0d8;
+      --hot: #d1495b;
+      --hot-soft: #ffe1e6;
+      --ok: #6a7fdb;
+      --ok-soft: #e7eafd;
+      --empty: #edf0e8;
+      --shadow: 0 12px 34px rgba(31, 41, 51, 0.08);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    main {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 36px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 44px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      max-width: 880px;
+      margin: 12px 0 22px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    .formula {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .pill {
+      min-height: 34px;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      border-radius: 8px;
+      color: #344054;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(270px, 1fr) auto minmax(260px, 420px);
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 18px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f0f3eb;
+    }
+
+    .segmented button,
+    .icon-button {
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .segmented button {
+      min-height: 36px;
+      border-radius: 6px;
+      font-weight: 700;
+    }
+
+    .segmented button.active {
+      background: #ffffff;
+      box-shadow: 0 2px 8px rgba(31, 41, 51, 0.12);
+    }
+
+    .icon-buttons {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .icon-button {
+      width: 38px;
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .icon-button:hover,
+    .segmented button:hover {
+      outline: 2px solid rgba(42, 157, 143, 0.22);
+    }
+
+    .slider-wrap {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--a);
+    }
+
+    .step-count {
+      min-width: 82px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(330px, 1fr) minmax(360px, 1.1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel h2 {
+      margin: 0;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .panel-body {
+      padding: 14px;
+    }
+
+    .matrix-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .matrix-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .grid8 {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      width: 100%;
+      aspect-ratio: 1;
+      border: 1px solid var(--line);
+      background: var(--line);
+      gap: 1px;
+    }
+
+    .cell {
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      min-height: 0;
+      background: #ffffff;
+      color: #5b6472;
+      font-size: clamp(10px, 1.5vw, 13px);
+      font-variant-numeric: tabular-nums;
+      transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+    }
+
+    .cell.q1 {
+      background: var(--a-soft);
+    }
+
+    .cell.q2 {
+      background: #e8f4ff;
+    }
+
+    .cell.q3 {
+      background: var(--b-soft);
+    }
+
+    .cell.q4 {
+      background: #f4e8ff;
+    }
+
+    .cell.active-a {
+      background: var(--a);
+      color: #ffffff;
+      box-shadow: inset 0 0 0 2px #155e56;
+      font-weight: 800;
+    }
+
+    .cell.active-b {
+      background: var(--b);
+      color: #1f2933;
+      box-shadow: inset 0 0 0 2px #9b5f05;
+      font-weight: 800;
+    }
+
+    .cell.staged {
+      background: var(--ok-soft);
+      color: #2f3d99;
+      box-shadow: inset 0 0 0 2px var(--ok);
+      font-weight: 800;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .stage-track {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .stage {
+      min-height: 52px;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcf8;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .stage.on {
+      border-color: var(--a);
+      background: #eefaf7;
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .note {
+      min-height: 116px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcf8;
+      line-height: 1.65;
+      color: #344054;
+    }
+
+    .note strong {
+      color: var(--ink);
+    }
+
+    .cache-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .set {
+      min-height: 62px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--empty);
+      padding: 8px;
+      display: grid;
+      align-content: space-between;
+      gap: 6px;
+      transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+    }
+
+    .set.active {
+      border-color: var(--a);
+      transform: translateY(-1px);
+    }
+
+    .set.evicted {
+      border-color: var(--hot);
+      background: var(--hot-soft);
+    }
+
+    .set-num {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      color: #56606e;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .owner {
+      min-height: 22px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .owner.a {
+      color: #137466;
+    }
+
+    .owner.b {
+      color: #9a5a00;
+    }
+
+    .owner.empty {
+      color: #98a2b3;
+      font-weight: 600;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .swatch {
+      width: 13px;
+      height: 13px;
+      border-radius: 3px;
+      border: 1px solid rgba(31, 41, 51, 0.2);
+    }
+
+    .swatch.a {
+      background: var(--a);
+    }
+
+    .swatch.b {
+      background: var(--b);
+    }
+
+    .swatch.hot {
+      background: var(--hot-soft);
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .summary-box {
+      min-height: 122px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .summary-box h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .summary-box p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    code {
+      padding: 1px 4px;
+      border-radius: 4px;
+      background: #eef1e8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.95em;
+    }
+
+    @media (max-width: 900px) {
+      main {
+        width: min(100% - 22px, 720px);
+        padding-top: 18px;
+      }
+
+      .toolbar,
+      .layout,
+      .comparison,
+      .matrix-row {
+        grid-template-columns: 1fr;
+      }
+
+      .icon-buttons {
+        justify-content: start;
+      }
+
+      .cache-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>64x64 为什么要把 8x8 再拆成 4x4</h1>
+    <p class="lead">
+      这个页面把 Cache Lab 的直接映射缓存画出来：32 个 set，每个 cache line 是 32B，正好放 8 个 int。
+      对 64x64 矩阵，连续一行有 64 个 int，也就是 8 条 cache line，因此 set 编号每 4 行重复一次。
+    </p>
+
+    <div class="formula" aria-label="Cache model">
+      <div class="pill">cache line: 32B = 8 个 int</div>
+      <div class="pill">64 个 int/行 = 8 条 cache line</div>
+      <div class="pill">set = (row * 8 + col / 8) mod 32</div>
+      <div class="pill">第 0 行和第 4 行会落到同一组 set</div>
+    </div>
+
+    <section class="toolbar" aria-label="Controls">
+      <div class="segmented" role="tablist" aria-label="Mode">
+        <button id="plainMode" class="active" type="button">普通 8x8</button>
+        <button id="splitMode" type="button">拆成 4x4</button>
+      </div>
+      <div class="icon-buttons">
+        <button class="icon-button" id="prev" type="button" title="上一步" aria-label="上一步">‹</button>
+        <button class="icon-button" id="play" type="button" title="播放" aria-label="播放">▶</button>
+        <button class="icon-button" id="next" type="button" title="下一步" aria-label="下一步">›</button>
+        <button class="icon-button" id="reset" type="button" title="重置" aria-label="重置">↺</button>
+      </div>
+      <div class="slider-wrap">
+        <input id="stepRange" type="range" min="0" max="1" value="0">
+        <div class="step-count" id="stepCount">1 / 1</div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="panel">
+        <h2>8x8 小块里的访问顺序</h2>
+        <div class="panel-body">
+          <div class="matrix-row">
+            <div>
+              <div class="matrix-title"><span>A 的 8x8 源块</span><span id="aSetLabel">set --</span></div>
+              <div class="grid8" id="gridA" aria-label="A block"></div>
+            </div>
+            <div>
+              <div class="matrix-title"><span>B 的 8x8 目标块</span><span id="bSetLabel">set --</span></div>
+              <div class="grid8" id="gridB" aria-label="B block"></div>
+            </div>
+          </div>
+          <div class="timeline">
+            <div class="stage-track" id="stageTrack">
+              <div class="stage" data-stage="read">读 A</div>
+              <div class="stage" data-stage="park">写入/暂存 B</div>
+              <div class="stage" data-stage="finish">交换/完成</div>
+            </div>
+            <div class="note" id="note"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>直接映射缓存：同一个 set 只能留下一个 cache line</h2>
+        <div class="panel-body">
+          <div class="cache-grid" id="cacheGrid" aria-label="Cache sets"></div>
+          <div class="legend">
+            <span><i class="swatch a"></i>A 的 cache line</span>
+            <span><i class="swatch b"></i>B 的 cache line</span>
+            <span><i class="swatch hot"></i>本步发生驱逐</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="comparison">
+      <div class="summary-box">
+        <h3>普通 8x8 的问题</h3>
+        <p>
+          读一行 A 后，8 次写 B 会碰到 B 的第 0/4、1/5、2/6、3/7 行落在相同 set 的情况。
+          临时变量只保存了值，保存不了 B 的 cache line，所以 B 自己也在来回挤掉自己。
+        </p>
+      </div>
+      <div class="summary-box">
+        <h3>4x4 拆分的意义</h3>
+        <p>
+          先只碰 B 的上 4 行，它们分别占 set 0、8、16、24，不互相冲突。
+          右上角先借 B 的空位暂存，再和左下角交换，避免在还需要复用时立刻碰 B 的下 4 行。
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const SETS = 32;
+    const TILE = 8;
+    const state = {
+      mode: "plain",
+      step: 0,
+      timer: null
+    };
+
+    const gridA = document.querySelector("#gridA");
+    const gridB = document.querySelector("#gridB");
+    const cacheGrid = document.querySelector("#cacheGrid");
+    const note = document.querySelector("#note");
+    const stageTrack = document.querySelector("#stageTrack");
+    const stepRange = document.querySelector("#stepRange");
+    const stepCount = document.querySelector("#stepCount");
+    const aSetLabel = document.querySelector("#aSetLabel");
+    const bSetLabel = document.querySelector("#bSetLabel");
+    const plainMode = document.querySelector("#plainMode");
+    const splitMode = document.querySelector("#splitMode");
+    const playButton = document.querySelector("#play");
+
+    function setOf(row, col) {
+      return (row * 8 + Math.floor(col / 8)) % SETS;
+    }
+
+    function lineKey(matrix, row, col) {
+      return `${matrix}${row}:${Math.floor(col / 8)}`;
+    }
+
+    function lineLabel(matrix, row, col) {
+      return `${matrix}[${row}][${Math.floor(col / 8) * 8}..${Math.floor(col / 8) * 8 + 7}]`;
+    }
+
+    function makeCell(matrix, r, c) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.dataset.matrix = matrix;
+      cell.dataset.r = String(r);
+      cell.dataset.c = String(c);
+      cell.textContent = `${r},${c}`;
+      const top = r < 4;
+      const left = c < 4;
+      if (top && left) cell.classList.add("q1");
+      if (top && !left) cell.classList.add("q2");
+      if (!top && left) cell.classList.add("q3");
+      if (!top && !left) cell.classList.add("q4");
+      return cell;
+    }
+
+    function buildGrids() {
+      for (let r = 0; r < TILE; r += 1) {
+        for (let c = 0; c < TILE; c += 1) {
+          gridA.appendChild(makeCell("A", r, c));
+          gridB.appendChild(makeCell("B", r, c));
+        }
+      }
+
+      for (let s = 0; s < SETS; s += 1) {
+        const set = document.createElement("div");
+        set.className = "set";
+        set.dataset.set = String(s);
+        set.innerHTML = `
+          <div class="set-num"><span>set ${s}</span><span></span></div>
+          <div class="owner empty">empty</div>
+        `;
+        cacheGrid.appendChild(set);
+      }
+    }
+
+    function plainSteps() {
+      const steps = [];
+      for (let k = 0; k < TILE; k += 1) {
+        steps.push({
+          stage: "read",
+          title: `读 A 第 ${k} 行`,
+          aCells: range(0, 7).map((c) => [k, c]),
+          bCells: [],
+          accesses: [{ matrix: "A", row: k, col: 0 }],
+          note: `先把 A[${k}][0..7] 读进寄存器。这一步只让“值”安全了，A 的 cache line 仍然可能被后面的 B 写操作驱逐。`
+        });
+        for (let x = 0; x < TILE; x += 1) {
+          steps.push({
+            stage: "park",
+            title: `写 B[${x}][${k}]`,
+            aCells: range(0, 7).map((c) => [k, c]),
+            bCells: [[x, k]],
+            accesses: [{ matrix: "B", row: x, col: k }],
+            note: `写 B[${x}][${k}] 会访问 B 第 ${x} 行的 cache line。因为 set 每 4 行重复，B[${x}][${k}] 和 B[${(x + 4) % 8}][${k}] 会抢同一个 set。`
+          });
+        }
+      }
+      return steps;
+    }
+
+    function splitSteps() {
+      const steps = [];
+      for (let k = 0; k < 4; k += 1) {
+        steps.push({
+          stage: "read",
+          title: `读 A 上半第 ${k} 行`,
+          aCells: range(0, 7).map((c) => [k, c]),
+          bCells: [],
+          accesses: [{ matrix: "A", row: k, col: 0 }],
+          note: `先读 A[${k}][0..7]。接下来只写 B 的上 4 行，暂时不碰 B 的下 4 行。`
+        });
+        for (let x = 0; x < 4; x += 1) {
+          steps.push({
+            stage: "park",
+            title: `写 B[${x}][${k}] 和暂存 B[${x}][${k + 4}]`,
+            aCells: range(0, 7).map((c) => [k, c]),
+            bCells: [[x, k], [x, k + 4]],
+            stagedCells: [[x, k + 4]],
+            accesses: [{ matrix: "B", row: x, col: k }],
+            note: `B 的第 0..3 行分别落在 set 0、8、16、24，彼此不同。右上角的值先放在 B[${x}][${k + 4}]，稍后再搬到正确的左下位置。`
+          });
+        }
+      }
+
+      for (let k = 0; k < 4; k += 1) {
+        steps.push({
+          stage: "finish",
+          title: `交换第 ${k} 列的小 4x4`,
+          aCells: range(4, 7).map((r) => [r, k]),
+          bCells: range(4, 7).map((c) => [k, c]).concat(range(0, 3).map((c) => [k + 4, c])),
+          stagedCells: range(4, 7).map((c) => [k, c]),
+          accesses: [
+            { matrix: "A", row: 4, col: k },
+            { matrix: "B", row: k, col: 4 },
+            { matrix: "B", row: k + 4, col: 0 }
+          ],
+          note: `现在把 A 左下角的 4 个值写到 B 的右上角，同时把之前暂存在 B[${k}][4..7] 的值搬到 B[${k + 4}][0..3]。暂存值已经进寄存器后，被驱逐也不影响正确性。`
+        });
+      }
+
+      for (let k = 4; k < 8; k += 1) {
+        steps.push({
+          stage: "finish",
+          title: `完成右下角第 ${k} 行`,
+          aCells: range(4, 7).map((c) => [k, c]),
+          bCells: range(4, 7).map((r) => [r, k]),
+          accesses: [
+            { matrix: "A", row: k, col: 4 },
+            { matrix: "B", row: 4, col: k }
+          ],
+          note: `最后处理右下 4x4。此时只集中写 B 的下 4 行，不再和上 4 行交替抢同一批 set。`
+        });
+      }
+      return steps;
+    }
+
+    function range(start, end) {
+      const out = [];
+      for (let i = start; i <= end; i += 1) out.push(i);
+      return out;
+    }
+
+    function getSteps() {
+      return state.mode === "plain" ? plainSteps() : splitSteps();
+    }
+
+    function simulateUntil(steps, index) {
+      const cache = new Map();
+      let lastEvictedSet = -1;
+      let lastAccessSet = -1;
+      for (let i = 0; i <= index; i += 1) {
+        for (const access of steps[i].accesses) {
+          const set = setOf(access.row, access.col);
+          const key = lineKey(access.matrix, access.row, access.col);
+          const prev = cache.get(set);
+          if (prev && prev.key !== key && i === index) {
+            lastEvictedSet = set;
+          }
+          cache.set(set, {
+            key,
+            matrix: access.matrix,
+            label: lineLabel(access.matrix, access.row, access.col)
+          });
+          if (i === index) lastAccessSet = set;
+        }
+      }
+      return { cache, lastEvictedSet, lastAccessSet };
+    }
+
+    function clearHighlights() {
+      document.querySelectorAll(".cell").forEach((cell) => {
+        cell.classList.remove("active-a", "active-b", "staged");
+      });
+      document.querySelectorAll(".set").forEach((set) => {
+        set.classList.remove("active", "evicted");
+      });
+    }
+
+    function markCells(grid, cells, className) {
+      for (const [r, c] of cells || []) {
+        const cell = grid.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+        if (cell) cell.classList.add(className);
+      }
+    }
+
+    function render() {
+      const steps = getSteps();
+      if (state.step >= steps.length) state.step = steps.length - 1;
+      const current = steps[state.step];
+      const sim = simulateUntil(steps, state.step);
+      clearHighlights();
+
+      markCells(gridA, current.aCells, "active-a");
+      markCells(gridB, current.bCells, "active-b");
+      markCells(gridB, current.stagedCells, "staged");
+
+      document.querySelectorAll(".set").forEach((setNode) => {
+        const setNum = Number(setNode.dataset.set);
+        const owner = setNode.querySelector(".owner");
+        const item = sim.cache.get(setNum);
+        if (item) {
+          owner.textContent = item.label;
+          owner.className = `owner ${item.matrix.toLowerCase()}`;
+        } else {
+          owner.textContent = "empty";
+          owner.className = "owner empty";
+        }
+        if (setNum === sim.lastAccessSet) setNode.classList.add("active");
+        if (setNum === sim.lastEvictedSet) setNode.classList.add("evicted");
+      });
+
+      const activeA = current.aCells && current.aCells[0];
+      const activeB = current.bCells && current.bCells[0];
+      aSetLabel.textContent = activeA ? `set ${setOf(activeA[0], activeA[1])}` : "set --";
+      bSetLabel.textContent = activeB ? `set ${setOf(activeB[0], activeB[1])}` : "set --";
+
+      stageTrack.querySelectorAll(".stage").forEach((stage) => {
+        stage.classList.toggle("on", stage.dataset.stage === current.stage);
+      });
+
+      const evictText = sim.lastEvictedSet >= 0
+        ? `<br><strong>本步驱逐：</strong>set ${sim.lastEvictedSet} 原来的 cache line 被换掉。`
+        : "";
+      note.innerHTML = `<strong>${current.title}</strong><br>${current.note}${evictText}`;
+
+      stepRange.max = String(steps.length - 1);
+      stepRange.value = String(state.step);
+      stepCount.textContent = `${state.step + 1} / ${steps.length}`;
+      plainMode.classList.toggle("active", state.mode === "plain");
+      splitMode.classList.toggle("active", state.mode === "split");
+    }
+
+    function setMode(mode) {
+      state.mode = mode;
+      state.step = 0;
+      stopPlay();
+      render();
+    }
+
+    function stepBy(delta) {
+      const steps = getSteps();
+      state.step = Math.max(0, Math.min(steps.length - 1, state.step + delta));
+      render();
+    }
+
+    function stopPlay() {
+      if (state.timer) {
+        clearInterval(state.timer);
+        state.timer = null;
+      }
+      playButton.textContent = "▶";
+      playButton.title = "播放";
+      playButton.setAttribute("aria-label", "播放");
+    }
+
+    function togglePlay() {
+      if (state.timer) {
+        stopPlay();
+        return;
+      }
+      playButton.textContent = "Ⅱ";
+      playButton.title = "暂停";
+      playButton.setAttribute("aria-label", "暂停");
+      state.timer = setInterval(() => {
+        const steps = getSteps();
+        if (state.step >= steps.length - 1) {
+          stopPlay();
+          return;
+        }
+        state.step += 1;
+        render();
+      }, 900);
+    }
+
+    buildGrids();
+    render();
+
+    plainMode.addEventListener("click", () => setMode("plain"));
+    splitMode.addEventListener("click", () => setMode("split"));
+    document.querySelector("#prev").addEventListener("click", () => stepBy(-1));
+    document.querySelector("#next").addEventListener("click", () => stepBy(1));
+    document.querySelector("#reset").addEventListener("click", () => {
+      state.step = 0;
+      stopPlay();
+      render();
+    });
+    playButton.addEventListener("click", togglePlay);
+    stepRange.addEventListener("input", (event) => {
+      state.step = Number(event.target.value);
+      render();
+    });
+  </script>
+</body>
+</html>

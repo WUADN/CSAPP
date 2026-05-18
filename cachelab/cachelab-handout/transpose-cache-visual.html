@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>64x64 转置 Cache 冲突可视化</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --ink: #14213d;
+      --muted: #5c667a;
+      --line: #d9e0ec;
+      --panel: #ffffff;
+      --a00: #5b8def;
+      --a01: #f0b44c;
+      --a10: #35b779;
+      --a11: #9b72cf;
+      --hot: #e85d75;
+      --cache: #13a6a6;
+      --soft: #eef3f9;
+      --shadow: 0 18px 50px rgba(28, 41, 61, .12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 7px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: #9fb0ca;
+      background: #f9fbff;
+    }
+
+    button.active {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: #fff;
+    }
+
+    main {
+      padding: 20px 24px 28px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .fact {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      box-shadow: 0 8px 22px rgba(28, 41, 61, .06);
+    }
+
+    .fact b {
+      display: block;
+      font-size: 18px;
+      margin-bottom: 2px;
+    }
+
+    .fact span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(440px, 1.1fr) minmax(360px, .9fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcff;
+    }
+
+    .panel-title {
+      font-weight: 750;
+      font-size: 16px;
+    }
+
+    .mode-label {
+      color: var(--muted);
+      font-size: 13px;
+      text-align: right;
+    }
+
+    .visual-body {
+      padding: 16px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .matrices {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .matrix-wrap {
+      display: grid;
+      gap: 8px;
+    }
+
+    .matrix-title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      font-weight: 720;
+    }
+
+    .matrix-title small {
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      aspect-ratio: 1;
+      border: 1px solid #bfcbdb;
+      background: #dfe7f2;
+      gap: 1px;
+      width: min(100%, 360px);
+    }
+
+    .cell {
+      position: relative;
+      min-width: 0;
+      background: #fff;
+      display: grid;
+      place-items: center;
+      color: rgba(20, 33, 61, .7);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .cell.a00,
+    .chip.a00 { background: #8db0f5; }
+    .cell.a01,
+    .chip.a01 { background: #f5ca7f; }
+    .cell.a10,
+    .chip.a10 { background: #73d1a1; }
+    .cell.a11,
+    .chip.a11 { background: #baa0df; }
+
+    .cell.dim {
+      opacity: .34;
+    }
+
+    .cell.active {
+      outline: 3px solid var(--hot);
+      outline-offset: -3px;
+      z-index: 1;
+    }
+
+    .cell.parked::after {
+      content: "临";
+      position: absolute;
+      right: 3px;
+      bottom: 2px;
+      font-size: 10px;
+      color: #7b4e00;
+    }
+
+    .cell.final::after {
+      content: "";
+      position: absolute;
+      inset: 3px;
+      border: 2px solid rgba(255,255,255,.8);
+      border-radius: 4px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border-radius: 6px;
+      color: #14213d;
+      font-weight: 650;
+    }
+
+    .cache-grid {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .set {
+      min-height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #f8fafc;
+      padding: 6px;
+      display: grid;
+      gap: 3px;
+      align-content: start;
+      transition: transform .2s ease, border-color .2s ease, background .2s ease;
+    }
+
+    .set.hot {
+      border-color: #5fc7c7;
+      background: #e8fbfb;
+      transform: translateY(-1px);
+    }
+
+    .set.conflict {
+      border-color: #f19aaa;
+      background: #fff0f3;
+    }
+
+    .set-index {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .set-content {
+      min-height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 5px;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 760;
+      color: var(--ink);
+    }
+
+    .set.hot .set-content {
+      background: #c9f2f2;
+    }
+
+    .set.conflict .set-content {
+      background: #ffd8df;
+    }
+
+    .explain {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .step-title {
+      font-size: 22px;
+      line-height: 1.25;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .step-text {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .formula {
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: #23334d;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding-top: 4px;
+    }
+
+    .tick {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 7px;
+      padding: 8px;
+      min-height: 58px;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .tick.active {
+      color: var(--ink);
+      border-color: #6b7fa3;
+      background: #f4f7fd;
+    }
+
+    .tick b {
+      display: block;
+      color: inherit;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+
+    .row-map {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .row-map div {
+      min-height: 54px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      font-weight: 720;
+    }
+
+    .row-map .same {
+      border-color: #f4b7c1;
+      background: #fff1f4;
+    }
+
+    @media (max-width: 980px) {
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .controls {
+        justify-content: flex-start;
+      }
+
+      .facts,
+      .workspace,
+      .matrices {
+        grid-template-columns: 1fr;
+      }
+
+      .matrix {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>64x64 转置 Cache 冲突可视化</h1>
+        <p class="subtitle">1KB 直接映射 cache，32B block，一个 block 放 8 个 int。</p>
+      </div>
+      <div class="controls" aria-label="控制">
+        <button id="badMode" class="active" type="button">普通 8x8</button>
+        <button id="goodMode" type="button">优化 4x4</button>
+        <button id="prev" type="button">上一步</button>
+        <button id="next" type="button">下一步</button>
+        <button id="play" type="button">播放</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="facts" aria-label="cache 参数">
+        <div class="fact"><b>32 sets</b><span>1024B / 32B，直接映射，每个 set 只有一个位置</span></div>
+        <div class="fact"><b>8 int</b><span>32B / 4B，一条 cache line 正好是一行小块的 8 个元素</span></div>
+        <div class="fact"><b>256B</b><span>64 个 int 一整行，等于 8 个 cache block</span></div>
+        <div class="fact"><b>row + 4</b><span>多 4 行就是多 32 个 block，set 编号绕回原处</span></div>
+      </section>
+
+      <section class="workspace">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">8x8 小块里的数据怎么移动</div>
+            <div id="modeLabel" class="mode-label">普通 8x8</div>
+          </div>
+          <div class="visual-body">
+            <div class="matrices">
+              <div class="matrix-wrap">
+                <div class="matrix-title">A 的 8x8 块 <small>原矩阵</small></div>
+                <div id="matrixA" class="matrix" aria-label="A matrix"></div>
+              </div>
+              <div class="matrix-wrap">
+                <div class="matrix-title">B 的 8x8 块 <small>转置目标</small></div>
+                <div id="matrixB" class="matrix" aria-label="B matrix"></div>
+              </div>
+            </div>
+            <div class="legend">
+              <span class="chip a00">A00 左上</span>
+              <span class="chip a01">A01 右上</span>
+              <span class="chip a10">A10 左下</span>
+              <span class="chip a11">A11 右下</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Cache set 占用</div>
+            <div class="mode-label">只画当前 8x8 会碰到的 set</div>
+          </div>
+          <div class="visual-body">
+            <div id="cacheGrid" class="cache-grid" aria-label="cache sets"></div>
+            <div>
+              <div class="matrix-title">B 的行号到 set 的映射 <small>同色表示冲突</small></div>
+              <div id="rowMap" class="row-map"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="explain">
+          <h2 id="stepTitle" class="step-title"></h2>
+          <p id="stepText" class="step-text"></p>
+          <div class="formula">set = ((base / 32) + row * 8 + block_col) mod 32；所以 row 和 row + 4 的同一列 block 映射到同一个 set。</div>
+          <div id="timeline" class="timeline"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const quadrants = {
+      a00: { rows: [0, 1, 2, 3], cols: [0, 1, 2, 3] },
+      a01: { rows: [0, 1, 2, 3], cols: [4, 5, 6, 7] },
+      a10: { rows: [4, 5, 6, 7], cols: [0, 1, 2, 3] },
+      a11: { rows: [4, 5, 6, 7], cols: [4, 5, 6, 7] }
+    };
+
+    const steps = {
+      bad: [
+        {
+          title: "普通 8x8：先读 A 的一行",
+          text: "A[0][0..7] 连续，读它很舒服，一次 miss 后整行小块都在 cache 里。问题出在随后写 B 的一列。",
+          aActive: [[0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7]],
+          bActive: [],
+          bClasses: {},
+          sets: {0: "A row0"},
+          conflicts: []
+        },
+        {
+          title: "写 B[0..3][0]：暂时还好",
+          text: "B[0][0]、B[1][0]、B[2][0]、B[3][0] 分别落在 set 0、8、16、24，四个 set 都不同。",
+          aActive: [[0,0],[0,1],[0,2],[0,3]],
+          bActive: [[0,0],[1,0],[2,0],[3,0]],
+          bClasses: {"0,0":"final","1,0":"final","2,0":"final","3,0":"final"},
+          sets: {0: "B row0", 8: "B row1", 16: "B row2", 24: "B row3"},
+          conflicts: []
+        },
+        {
+          title: "继续写 B[4..7][0]：开始互相覆盖",
+          text: "B[4][0] 又落到 set 0，会顶掉刚加载的 B[0][0] 所在 block。B[5] 顶 B[1]，B[6] 顶 B[2]，B[7] 顶 B[3]。",
+          aActive: [[0,4],[0,5],[0,6],[0,7]],
+          bActive: [[4,0],[5,0],[6,0],[7,0]],
+          bClasses: {"0,0":"dim","1,0":"dim","2,0":"dim","3,0":"dim","4,0":"final active","5,0":"final active","6,0":"final active","7,0":"final active"},
+          sets: {0: "B row4", 8: "B row5", 16: "B row6", 24: "B row7"},
+          conflicts: [0, 8, 16, 24]
+        },
+        {
+          title: "下一行还要写 B[0..7][1]，刚才的复用没了",
+          text: "B[0][1] 本来和 B[0][0] 在同一个 cache block 里，应该 hit。但这个 block 已经被 B[4][0] 顶掉，于是又 miss，循环反复发生。",
+          aActive: [[1,0],[1,1],[1,2],[1,3],[1,4],[1,5],[1,6],[1,7]],
+          bActive: [[0,1],[1,1],[2,1],[3,1]],
+          bClasses: {"0,0":"dim","1,0":"dim","2,0":"dim","3,0":"dim","0,1":"active","1,1":"active","2,1":"active","3,1":"active"},
+          sets: {0: "B row0 again", 8: "B row1 again", 16: "B row2 again", 24: "B row3 again"},
+          conflicts: [0, 8, 16, 24]
+        }
+      ],
+      good: [
+        {
+          title: "优化 4x4：把 8x8 拆成四个象限",
+          text: "A00、A01、A10、A11 分别是 4x4。转置后 A01 要去 B 左下，A10 要去 B 右上，所以这两个象限最终会交换位置。",
+          aActive: [],
+          bActive: [],
+          bClasses: {},
+          sets: {},
+          conflicts: []
+        },
+        {
+          title: "第一步：只写 B 的上半 4 行",
+          text: "A00 直接写到 B 左上。A01 不急着写到 B 左下，而是先停在 B 右上。这样这一轮只碰 B[0..3]，避开 B[4..7] 对它们的覆盖。",
+          aActive: rect(0, 0, 4, 8),
+          bActive: rect(0, 0, 4, 8),
+          bClasses: mark(rect(0, 0, 4, 4), "final", mark(rect(0, 4, 4, 4), "parked")),
+          sets: {0: "B row0", 8: "B row1", 16: "B row2", 24: "B row3"},
+          conflicts: []
+        },
+        {
+          title: "第二步：读 A10，同时交换暂存的 A01",
+          text: "读 A 左下的一列放到 B 右上，把刚才停在 B 右上的 A01 取出来，搬到 B 左下的最终位置。这个步骤完成后，两个交叉象限都归位。",
+          aActive: rect(4, 0, 4, 4),
+          bActive: rect(0, 4, 8, 4),
+          bClasses: mark(rect(0, 4, 4, 4), "final active", mark(rect(4, 0, 4, 4), "final active")),
+          sets: {0: "swap row0/4", 8: "swap row1/5", 16: "swap row2/6", 24: "swap row3/7"},
+          conflicts: [0, 8, 16, 24]
+        },
+        {
+          title: "第三步：右下 A11 直接写",
+          text: "剩下的 A11 只涉及右下 4x4，直接写到 B 右下。到这里，一个 8x8 块完成，冲突集中在可控的小范围里。",
+          aActive: rect(4, 4, 4, 4),
+          bActive: rect(4, 4, 4, 4),
+          bClasses: mark(rect(0, 0, 8, 8), "final", {}),
+          sets: {0: "B row4", 8: "B row5", 16: "B row6", 24: "B row7"},
+          conflicts: []
+        }
+      ]
+    };
+
+    let mode = "bad";
+    let step = 0;
+    let timer = null;
+
+    const matrixA = document.getElementById("matrixA");
+    const matrixB = document.getElementById("matrixB");
+    const cacheGrid = document.getElementById("cacheGrid");
+    const rowMap = document.getElementById("rowMap");
+    const timeline = document.getElementById("timeline");
+    const modeLabel = document.getElementById("modeLabel");
+    const stepTitle = document.getElementById("stepTitle");
+    const stepText = document.getElementById("stepText");
+    const badMode = document.getElementById("badMode");
+    const goodMode = document.getElementById("goodMode");
+    const play = document.getElementById("play");
+
+    function rect(row, col, height, width) {
+      const cells = [];
+      for (let r = row; r < row + height; r++) {
+        for (let c = col; c < col + width; c++) cells.push([r, c]);
+      }
+      return cells;
+    }
+
+    function mark(cells, className, base = {}) {
+      const out = {...base};
+      cells.forEach(([r, c]) => out[`${r},${c}`] = className);
+      return out;
+    }
+
+    function quadrantOf(r, c) {
+      if (r < 4 && c < 4) return "a00";
+      if (r < 4) return "a01";
+      if (c < 4) return "a10";
+      return "a11";
+    }
+
+    function transposeQuadrant(r, c) {
+      if (r < 4 && c < 4) return "a00";
+      if (r < 4) return "a10";
+      if (c < 4) return "a01";
+      return "a11";
+    }
+
+    function cellKeySet(cells) {
+      return new Set(cells.map(([r, c]) => `${r},${c}`));
+    }
+
+    function renderMatrix(el, activeCells, classMap, isB) {
+      const active = cellKeySet(activeCells);
+      el.innerHTML = "";
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const div = document.createElement("div");
+          const key = `${r},${c}`;
+          const q = isB ? transposeQuadrant(r, c) : quadrantOf(r, c);
+          div.className = `cell ${q}`;
+          if (classMap[key]) div.className += ` ${classMap[key]}`;
+          if (active.has(key)) div.className += " active";
+          if (!active.has(key) && activeCells.length) {
+            const visible = classMap[key] || (isB && mode === "good" && step === 3);
+            if (!visible) div.className += " dim";
+          }
+          div.textContent = `${r},${c}`;
+          el.appendChild(div);
+        }
+      }
+    }
+
+    function renderCache(data) {
+      cacheGrid.innerHTML = "";
+      const shownSets = [0, 1, 2, 3, 8, 9, 10, 11, 16, 17, 18, 19, 24, 25, 26, 27];
+      shownSets.forEach(index => {
+        const div = document.createElement("div");
+        const hot = Object.prototype.hasOwnProperty.call(data.sets, index);
+        const conflict = data.conflicts.includes(index);
+        div.className = `set${hot ? " hot" : ""}${conflict ? " conflict" : ""}`;
+        div.innerHTML = `<div class="set-index">set ${index}</div><div class="set-content">${hot ? data.sets[index] : ""}</div>`;
+        cacheGrid.appendChild(div);
+      });
+    }
+
+    function renderRowMap() {
+      rowMap.innerHTML = "";
+      for (let r = 0; r < 8; r++) {
+        const div = document.createElement("div");
+        const set = (r * 8) % 32;
+        div.className = r >= 4 ? "same" : "";
+        div.textContent = `B row ${r} -> set ${set}`;
+        rowMap.appendChild(div);
+      }
+    }
+
+    function renderTimeline() {
+      timeline.innerHTML = "";
+      steps[mode].forEach((item, index) => {
+        const div = document.createElement("button");
+        div.type = "button";
+        div.className = `tick${index === step ? " active" : ""}`;
+        div.innerHTML = `<b>${index + 1}</b>${item.title}`;
+        div.addEventListener("click", () => {
+          step = index;
+          stop();
+          render();
+        });
+        timeline.appendChild(div);
+      });
+    }
+
+    function render() {
+      const data = steps[mode][step];
+      modeLabel.textContent = mode === "bad" ? "普通 8x8" : "优化 4x4";
+      badMode.classList.toggle("active", mode === "bad");
+      goodMode.classList.toggle("active", mode === "good");
+      stepTitle.textContent = data.title;
+      stepText.textContent = data.text;
+      renderMatrix(matrixA, data.aActive, {}, false);
+      renderMatrix(matrixB, data.bActive, data.bClasses, true);
+      renderCache(data);
+      renderRowMap();
+      renderTimeline();
+    }
+
+    function setMode(nextMode) {
+      mode = nextMode;
+      step = 0;
+      stop();
+      render();
+    }
+
+    function stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+      play.textContent = "播放";
+    }
+
+    badMode.addEventListener("click", () => setMode("bad"));
+    goodMode.addEventListener("click", () => setMode("good"));
+
+    document.getElementById("prev").addEventListener("click", () => {
+      step = (step + steps[mode].length - 1) % steps[mode].length;
+      stop();
+      render();
+    });
+
+    document.getElementById("next").addEventListener("click", () => {
+      step = (step + 1) % steps[mode].length;
+      stop();
+      render();
+    });
+
+    play.addEventListener("click", () => {
+      if (timer) {
+        stop();
+        return;
+      }
+      play.textContent = "暂停";
+      timer = setInterval(() => {
+        step = (step + 1) % steps[mode].length;
+        render();
+      }, 1800);
+    });
+
+    render();
+  </script>
+</body>
+</html>
